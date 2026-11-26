@@ -433,6 +433,11 @@ function frame(now) {
         time: mission.id === 'rings' ? fmtTime(missionTime) : '',
       },
       message: shot === 'rings' ? { text: 'RING 2 OF 8', sub: 'Thread the orange gate', tone: 'good' } : null,
+      map: {
+        rings: mission.id === 'rings' ? RING_COURSE : null,
+        next: tracker.index,
+        targetStrip: mission.id === 'post',
+      },
     });
     return;
   }
@@ -523,6 +528,11 @@ function frame(now) {
     message: message && performance.now() < message.until ? message : null,
     debriefReady: perfSeconds >= endLinesAt,
     endLines,
+    map: {
+      rings: mission.id === 'rings' ? RING_COURSE : null,
+      next: tracker.index,
+      targetStrip: mission.id === 'post',
+    },
   });
   input.endFrame();
 }

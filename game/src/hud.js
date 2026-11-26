@@ -1,7 +1,9 @@
 // hud.js — the instrument panel and every screen the pilot reads: airspeed
 // and altitude tapes, a heading ribbon, an artificial horizon, throttle and
-// fuel gauges, the mission panel, the title menu and the end-of-flight
-// debrief. Drawn on a 2D canvas laid over the 3D view.
+// fuel gauges, the mission panel, a north-up minimap, the title menu and
+// the end-of-flight debrief. Drawn on a 2D canvas laid over the 3D view.
+
+import { groundHeight, RUNWAY, DIRT_STRIP } from './world.js';
 
 const INK = '#0b1520';
 const GLASS = 'rgba(8, 18, 28, 0.72)';
@@ -15,6 +17,7 @@ export class Hud {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.mapBase = null; // the minimap's terrain, painted once (see below)
   }
 
   resize() {
@@ -30,7 +33,7 @@ export class Hud {
   // screenshot tells anyone exactly which build they are looking at.
   drawBuildTag() {
     const s = this.s, W = this.canvas.width;
-    this.text('BUILD 6', W - 16 * s, 20 * s, 13 * s, AMBER, 'right', 800);
+    this.text('BUILD 7', W - 16 * s, 20 * s, 13 * s, AMBER, 'right', 800);
   }
 
   panel(x, y, w, h, fill = GLASS) {
@@ -209,6 +212,139 @@ export class Hud {
     });
   }
 
+  // The minimap's terrain base: the whole world (±2400 m, the span of
+  // the terrain mesh) sampled once on a coarse 50×50 grid into an
+  // offscreen canvas — water one flat blue, the land in quiet height
+  // bands — then blitted every frame. North is up: world -Z (north)
+  // maps to the top, +X (east) to the right.
+  buildMapBase() {
+    const N = 50, PX = 200, EXT = 2400;
+    const base = document.createElement('canvas');
+    base.width = PX; base.height = PX;
+    const b = base.getContext('2d');
+    const cell = PX / N;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const wx = -EXT + (i + 0.5) * (2 * EXT / N);
+        const wz = -EXT + (j + 0.5) * (2 * EXT / N);
+        const h = groundHeight(wx, wz);
+        b.fillStyle = h < 3.0 ? '#2a4d69'
+          : h < 25 ? '#3d5a3a'
+          : h < 70 ? '#4a5d3c'
+          : h < 130 ? '#5d5f45'
+          : '#6e6a5e';
+        b.fillRect(i * cell, j * cell, cell + 1, cell + 1);
+      }
+    }
+    this.mapBase = base;
+  }
+
+  // North-up minimap, top-right corner (the one corner no other
+  // instrument wants): terrain, both strips, the ring course with the
+  // next gate lit orange and pulsing, and the aeroplane as a white
+  // triangle turned to her heading. view.map carries the live state:
+  // { rings: RING_COURSE | null, next: tracker.index, targetStrip }.
+  drawMinimap(view) {
+    if (!view.map) return;
+    if (!this.mapBase) this.buildMapBase();
+    const c = this.ctx, s = this.s;
+    const W = this.canvas.width;
+    const size = 160 * s;
+    const x0 = W - 16 * s - size, y0 = 52 * s;
+    const EXT = 2400;
+    const mx = (wx) => x0 + (wx / (2 * EXT) + 0.5) * size;
+    const my = (wz) => y0 + (wz / (2 * EXT) + 0.5) * size;
+
+    c.save();
+    c.beginPath();
+    c.roundRect(x0, y0, size, size, 8);
+    c.clip();
+    c.globalAlpha = 0.94;
+    c.drawImage(this.mapBase, x0, y0, size, size);
+    c.globalAlpha = 1;
+
+    const f = view.flight;
+    const map = view.map;
+    const px = mx(f.pos[0]), py = my(f.pos[2]);
+
+    // A faint dashed guide from the nose to whatever is next.
+    let guide = null;
+    if (map.rings && map.next < map.rings.length) guide = map.rings[map.next].center;
+    else if (map.targetStrip) guide = [(DIRT_STRIP.xWest + DIRT_STRIP.xEast) / 2, 0, DIRT_STRIP.cz];
+    if (guide) {
+      c.strokeStyle = 'rgba(255, 195, 87, 0.55)';
+      c.lineWidth = Math.max(1, 1.2 * s);
+      c.setLineDash([4 * s, 4 * s]);
+      c.beginPath();
+      c.moveTo(px, py);
+      c.lineTo(mx(guide[0]), my(guide[2]));
+      c.stroke();
+      c.setLineDash([]);
+    }
+
+    // The two strips: home asphalt and the plateau dirt, the dirt one
+    // lit amber while it is the Plateau Post goal.
+    c.strokeStyle = '#e8ece7';
+    c.lineWidth = Math.max(1.6, 2.6 * s);
+    c.beginPath();
+    c.moveTo(mx(RUNWAY.cx), my(RUNWAY.zNorth));
+    c.lineTo(mx(RUNWAY.cx), my(RUNWAY.zSouth));
+    c.stroke();
+    c.strokeStyle = map.targetStrip ? AMBER : 'rgba(232, 236, 231, 0.75)';
+    c.lineWidth = Math.max(1.6, (map.targetStrip ? 3.4 : 2.4) * s);
+    c.beginPath();
+    c.moveTo(mx(DIRT_STRIP.xWest), my(DIRT_STRIP.cz));
+    c.lineTo(mx(DIRT_STRIP.xEast), my(DIRT_STRIP.cz));
+    c.stroke();
+
+    // The gates, coloured as they are in the world: flown green and
+    // dim, waiting teal, the next one orange with a breathing ring.
+    if (map.rings) {
+      const now = performance.now();
+      map.rings.forEach((ring, i) => {
+        const rx = mx(ring.center[0]), ry = my(ring.center[2]);
+        if (i < map.next) {
+          c.fillStyle = 'rgba(90, 200, 110, 0.55)';
+          c.beginPath(); c.arc(rx, ry, 2.6 * s, 0, Math.PI * 2); c.fill();
+        } else if (i > map.next) {
+          c.fillStyle = '#27b8cc';
+          c.beginPath(); c.arc(rx, ry, 2.6 * s, 0, Math.PI * 2); c.fill();
+        } else {
+          const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+          c.strokeStyle = '#ff8c1a';
+          c.lineWidth = Math.max(1.2, 1.8 * s);
+          c.beginPath(); c.arc(rx, ry, (6 + 2.6 * pulse) * s, 0, Math.PI * 2); c.stroke();
+          c.fillStyle = '#ff8c1a';
+          c.beginPath(); c.arc(rx, ry, 3.4 * s, 0, Math.PI * 2); c.fill();
+        }
+      });
+    }
+
+    // The aeroplane herself: a white triangle on her heading.
+    c.translate(px, py);
+    c.rotate(f.heading);
+    c.fillStyle = '#ffffff';
+    c.strokeStyle = 'rgba(5, 10, 16, 0.8)';
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(0, -7 * s);
+    c.lineTo(4.6 * s, 5.5 * s);
+    c.lineTo(0, 2.8 * s);
+    c.lineTo(-4.6 * s, 5.5 * s);
+    c.closePath();
+    c.fill();
+    c.stroke();
+    c.restore();
+
+    // Frame and the north mark, over the clipped terrain.
+    c.strokeStyle = LINE;
+    c.lineWidth = 1;
+    c.beginPath();
+    c.roundRect(x0, y0, size, size, 8);
+    c.stroke();
+    this.text('N', x0 + size / 2, y0 + 9 * s, 9 * s, TEXT, 'center', 700);
+  }
+
   draw(view) {
     const c = this.ctx, s = this.s;
     const W = this.canvas.width, H = this.canvas.height;
@@ -217,12 +353,14 @@ export class Hud {
 
     if (view.mode === 'menu') { this.drawMenu(view); return; }
 
-    // Flight instruments. The horizon hugs the bottom edge (panel
-    // bottom 8*s above it) so the runway ahead stays in view.
+    // Flight instruments. The horizon sits in the bottom-left corner,
+    // above the engine cluster and clear of the airspeed tape: the
+    // chase view puts the aeroplane centre-frame, and a centre-bottom
+    // instrument kept sitting on top of her.
     this.tape(26 * s, H / 2, f.speedKnots, 10, 'KT', 'AIRSPEED', (v) => String(v));
     this.tape(W - 88 * s, H / 2, f.altitudeFeet, 100, 'FT', 'ALTITUDE', (v) => String(v));
     this.headingRibbon(W / 2, 18 * s, f.headingDeg);
-    this.horizon(W / 2, H - 76 * s, f);
+    this.horizon(94 * s, H - 194 * s, f);
 
     // Vertical speed under the altitude tape.
     const vs = Math.round(f.climbRate * 196.85);
@@ -272,6 +410,7 @@ export class Hud {
     this.drawBuildTag();
 
     this.drawControls();
+    this.drawMinimap(view);
 
     if (view.mode === 'complete') this.drawEnd(view, true);
     if (view.mode === 'crashed' && view.debriefReady) this.drawEnd(view, false);

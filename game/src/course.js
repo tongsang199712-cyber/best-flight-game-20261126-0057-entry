@@ -17,7 +17,7 @@ export const RING_COURSE = [
   { center: [170, 48, -70], heading: 3.05 },
 ];
 
-export const RING_RADIUS = 16;
+export const RING_RADIUS = 24;
 
 const RING_COLORS = {
   next: [1.0, 0.52, 0.10],     // the gate to fly, hot orange
