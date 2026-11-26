@@ -119,10 +119,15 @@ export class FlightModel {
     const rollTarget = (input.roll || 0) * 1.02;
     this.roll += clamp(rollTarget - this.roll, -2.4 * dt, 2.4 * dt);
     if (!airborne) this.roll *= Math.max(0, 1 - 6 * dt);
-    // Rotation on the roll is brisk (0.9 rad/s) so she lifts off right
-    // at FLY_SPEED instead of barging well past it while the nose
-    // comes up; airborne pitch response stays at 0.70.
-    const pitchRate = (input.pitch || 0) * (airborne ? 0.70 : 0.9);
+    // Rotation on the roll is brisk so she lifts off right at
+    // FLY_SPEED instead of barging well past it while the nose comes
+    // up. Near flying speed it snaps at 1.5 rad/s: the throttle is a
+    // latching key (0.55/s) and real key timing is sloppy, so a lazy
+    // rotation misses the moment and she runs out of strip still
+    // nose-down. Well below FLY_SPEED the gentler 0.9 keeps taxying
+    // manners; airborne pitch response stays at 0.70.
+    const groundRate = this.speed >= this.stallSpeed * 0.8 ? 1.5 : 0.9;
+    const pitchRate = (input.pitch || 0) * (airborne ? 0.70 : groundRate);
     // Nose-down authority goes to -0.65 rad so a dive actually steepens
     // enough for gravity to pile the speed on (see the forces below);
     // nose-up goes to 0.50 so a full pull climbs like it means it.
@@ -202,13 +207,13 @@ export class FlightModel {
       }
       this.pos[1] = groundY;
       this.onGround = true;
-      if (!this.crashed && this.speed > this.stallSpeed && this.pitch > 0.06 && climb > 0.5) {
+      if (!this.crashed && this.speed > this.stallSpeed && this.pitch > 0.04) {
         this.onGround = false; // rotated: she lifts off again
         this.pos[1] = groundY + 0.1;
       }
     } else if (this.pos[1] > groundY + 0.35) {
       this.onGround = false;
-    } else if (this.onGround && !this.crashed && this.speed > this.stallSpeed && this.pitch > 0.06 && climb > 0.5) {
+    } else if (this.onGround && !this.crashed && this.speed > this.stallSpeed && this.pitch > 0.04) {
       // Rotated while the wing was already floating her a hair above
       // the surface: call it airborne now, at FLY_SPEED, instead of
       // waiting for the 0.35 m separation above.

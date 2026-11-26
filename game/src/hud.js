@@ -21,6 +21,16 @@ export class Hud {
     this.canvas.width = innerWidth;
     this.canvas.height = innerHeight;
     this.s = Math.min(innerWidth / 1280, innerHeight / 800);
+    // Short windows get one more notch down, so the instruments never
+    // crowd out the runway and the view ahead on a small screen.
+    if (innerHeight < 640) this.s *= 0.85;
+  }
+
+  // The build stamp, top-right corner of every screen: one glance at a
+  // screenshot tells anyone exactly which build they are looking at.
+  drawBuildTag() {
+    const s = this.s, W = this.canvas.width;
+    this.text('BUILD 6', W - 16 * s, 20 * s, 13 * s, AMBER, 'right', 800);
   }
 
   panel(x, y, w, h, fill = GLASS) {
@@ -45,11 +55,11 @@ export class Hud {
 
   tape(x, cy, value, step, unit, label, fmt) {
     const c = this.ctx, s = this.s;
-    const h = 300 * s;
-    this.panel(x, cy - h / 2, 86 * s, h);
+    const w = 62 * s, h = 225 * s;
+    this.panel(x, cy - h / 2, w, h);
     c.save();
     c.beginPath();
-    c.rect(x, cy - h / 2, 86 * s, h);
+    c.rect(x, cy - h / 2, w, h);
     c.clip();
     const pxPer = (h / 2) / (step * 3.2);
     const first = Math.floor(value / step) - 4;
@@ -59,20 +69,20 @@ export class Hud {
       const y = cy + (value - v) * pxPer;
       if (y < cy - h / 2 - 12 || y > cy + h / 2 + 12) continue;
       c.fillStyle = TEXT;
-      c.font = `${600} ${13 * s}px system-ui, sans-serif`;
+      c.font = `${600} ${12 * s}px system-ui, sans-serif`;
       c.textAlign = 'right';
-      c.fillText(fmt(v), x + 58 * s, y);
-      c.fillRect(x + 64 * s, y - 1, 12 * s, 2);
+      c.fillText(fmt(v), x + w - 24 * s, y);
+      c.fillRect(x + w - 18 * s, y - 1, 10 * s, 2);
     }
     c.restore();
     // Current-value readout in the middle.
     c.fillStyle = INK;
-    c.fillRect(x + 4 * s, cy - 15 * s, 62 * s, 30 * s);
+    c.fillRect(x + 5 * s, cy - 14 * s, w - 10 * s, 28 * s);
     c.strokeStyle = ACCENT;
-    c.strokeRect(x + 4 * s, cy - 15 * s, 62 * s, 30 * s);
-    this.text(fmt(Math.round(value)), x + 35 * s, cy, 17 * s, ACCENT, 'center', 700);
-    this.text(label, x + 43 * s, cy - h / 2 - 16 * s, 12 * s, LINE, 'center');
-    this.text(unit, x + 43 * s, cy + h / 2 + 16 * s, 11 * s, LINE, 'center');
+    c.strokeRect(x + 5 * s, cy - 14 * s, w - 10 * s, 28 * s);
+    this.text(fmt(Math.round(value)), x + w / 2, cy, 16 * s, ACCENT, 'center', 700);
+    this.text(label, x + w / 2, cy - h / 2 - 16 * s, 11 * s, LINE, 'center');
+    this.text(unit, x + w / 2, cy + h / 2 + 16 * s, 10 * s, LINE, 'center');
   }
 
   headingRibbon(cx, y, headingDeg) {
@@ -106,7 +116,7 @@ export class Hud {
 
   horizon(cx, cy, flight) {
     const c = this.ctx, s = this.s;
-    const r = 92 * s;
+    const r = 60 * s;
     c.save();
     this.panel(cx - r - 8 * s, cy - r - 8 * s, (r + 8 * s) * 2, (r + 8 * s) * 2);
     c.beginPath();
@@ -143,12 +153,12 @@ export class Hud {
     c.strokeStyle = AMBER;
     c.lineWidth = 3;
     c.beginPath();
-    c.moveTo(cx - 42 * s, cy);
-    c.lineTo(cx - 12 * s, cy);
-    c.lineTo(cx - 12 * s, cy + 8 * s);
-    c.moveTo(cx + 42 * s, cy);
-    c.lineTo(cx + 12 * s, cy);
-    c.lineTo(cx + 12 * s, cy + 8 * s);
+    c.moveTo(cx - 30 * s, cy);
+    c.lineTo(cx - 9 * s, cy);
+    c.lineTo(cx - 9 * s, cy + 6 * s);
+    c.moveTo(cx + 30 * s, cy);
+    c.lineTo(cx + 9 * s, cy);
+    c.lineTo(cx + 9 * s, cy + 6 * s);
     c.stroke();
     c.fillStyle = AMBER;
     c.beginPath();
@@ -207,15 +217,16 @@ export class Hud {
 
     if (view.mode === 'menu') { this.drawMenu(view); return; }
 
-    // Flight instruments.
+    // Flight instruments. The horizon hugs the bottom edge (panel
+    // bottom 8*s above it) so the runway ahead stays in view.
     this.tape(26 * s, H / 2, f.speedKnots, 10, 'KT', 'AIRSPEED', (v) => String(v));
-    this.tape(W - 112 * s, H / 2, f.altitudeFeet, 100, 'FT', 'ALTITUDE', (v) => String(v));
+    this.tape(W - 88 * s, H / 2, f.altitudeFeet, 100, 'FT', 'ALTITUDE', (v) => String(v));
     this.headingRibbon(W / 2, 18 * s, f.headingDeg);
-    this.horizon(W / 2, H - 128 * s, f);
+    this.horizon(W / 2, H - 76 * s, f);
 
     // Vertical speed under the altitude tape.
     const vs = Math.round(f.climbRate * 196.85);
-    this.text(`VSI ${vs >= 0 ? '+' : ''}${vs}`, W - 69 * s, H / 2 + 178 * s, 13 * s, vs < -600 ? AMBER : TEXT, 'center', 700);
+    this.text(`VSI ${vs >= 0 ? '+' : ''}${vs}`, W - 57 * s, H / 2 + 142 * s, 13 * s, vs < -600 ? AMBER : TEXT, 'center', 700);
 
     // Engine and fuel cluster, bottom left.
     const bx = 26 * s, by = H - 118 * s;
@@ -257,7 +268,8 @@ export class Hud {
       this.text('FUEL EMPTY — GLIDE', W / 2, H * 0.20, 17 * s, RED, 'center', 800);
     }
 
-    this.text(view.muted ? 'SOUND OFF (M)' : 'M — SOUND', W - 16 * s, 22 * s, 11 * s, LINE, 'right', 600);
+    this.text(view.muted ? 'SOUND OFF (M)' : 'M — SOUND', W - 16 * s, 40 * s, 11 * s, LINE, 'right', 600);
+    this.drawBuildTag();
 
     this.drawControls();
 
@@ -299,6 +311,7 @@ export class Hud {
       this.text(row[1], x + 128 * s, y, 13 * s, TEXT, 'left', 500);
     });
     this.text('Press ENTER to fly', W / 2, H - 54 * s, 16 * s, '#ffffff', 'center', 700);
+    this.drawBuildTag();
   }
 
   drawEnd(view, success) {
