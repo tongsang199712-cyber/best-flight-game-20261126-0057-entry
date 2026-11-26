@@ -176,6 +176,27 @@ export class Hud {
     this.text(readout, x + 52 * s + w, y, 12 * s, TEXT, 'left', 700);
   }
 
+  // Persistent key reminder, top-left corner, visible for the whole
+  // flight so a new pilot never has to memorise the controls first.
+  drawControls() {
+    const s = this.s;
+    const x = 14 * s, y = 14 * s;
+    this.panel(x, y, 248 * s, 128 * s);
+    this.text('CONTROLS', x + 12 * s, y + 19 * s, 11 * s, LINE, 'left', 700);
+    const rows = [
+      ['W / S', 'nose up · down'],
+      ['A / D', 'bank left · right'],
+      ['SHIFT', 'throttle up'],
+      ['CTRL', 'throttle down'],
+      ['SPACE · F', 'brake · flaps'],
+    ];
+    rows.forEach((row, i) => {
+      const ry = y + 42 * s + i * 18 * s;
+      this.text(row[0], x + 12 * s, ry, 12 * s, AMBER, 'left', 700);
+      this.text(row[1], x + 92 * s, ry, 12 * s, TEXT, 'left', 500);
+    });
+  }
+
   draw(view) {
     const c = this.ctx, s = this.s;
     const W = this.canvas.width, H = this.canvas.height;
@@ -236,6 +257,8 @@ export class Hud {
 
     this.text(view.muted ? 'SOUND OFF (M)' : 'M — SOUND', W - 16 * s, 22 * s, 11 * s, LINE, 'right', 600);
 
+    this.drawControls();
+
     if (view.mode === 'complete') this.drawEnd(view, true);
     if (view.mode === 'crashed') this.drawEnd(view, false);
   }
@@ -261,8 +284,8 @@ export class Hud {
     });
 
     const controls = [
-      ['↑ / ↓ or mouse', 'climb · descend'], ['← / → or mouse', 'bank and turn'],
-      ['A / D', 'rudder'], ['W / S', 'throttle'],
+      ['W / S · ↑ / ↓', 'climb · descend'], ['A / D · ← / →', 'bank and turn'],
+      ['SHIFT', 'throttle up'], ['CTRL', 'throttle down'],
       ['F', 'flaps'], ['SPACE', 'wheel brake'],
       ['R', 'restart flight'], ['M', 'sound on/off'],
     ];

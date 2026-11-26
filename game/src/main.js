@@ -98,7 +98,7 @@ function startMission(index) {
   message = null;
   camPos = null;
   mode = 'fly';
-  showMessage(mission.title.toUpperCase(), 'W/S throttle · arrows or mouse to fly · F flaps', 'info', 3.4);
+  showMessage(mission.title.toUpperCase(), 'WASD to fly · SHIFT throttle up · CTRL throttle down · F flaps', 'info', 3.4);
 }
 
 function endFlight(lines) {

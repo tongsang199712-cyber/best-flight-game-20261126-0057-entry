@@ -1,12 +1,13 @@
-// input.js — keyboard and mouse flight controls. The yoke is the arrow
-// keys or the mouse (move it like a stick); the throttle latches with W/S
-// and is read back from the flight model, so every system agrees.
+// input.js — keyboard-only flight controls. WASD flies the plane:
+// W/S pitch the nose up/down, A/D bank left/right (the arrow keys mirror
+// them as a backup). The throttle latches with Shift (up) and Ctrl
+// (down) and is read back from the flight model, so every system agrees.
+// The mouse never steers; it only clicks menu buttons.
 
 export class Input {
   constructor(canvas) {
     this.keys = new Set();
     this.edges = new Set();
-    this.mouse = { x: 0, y: 0, seen: false };
     this.throttleDelta = 0;
 
     addEventListener('keydown', (e) => {
@@ -16,12 +17,6 @@ export class Input {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
-    canvas.addEventListener('mousemove', (e) => {
-      const r = canvas.getBoundingClientRect();
-      this.mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-      this.mouse.y = ((e.clientY - r.top) / r.height) * 2 - 1;
-      this.mouse.seen = true;
-    });
   }
 
   // True once per physical press.
@@ -33,35 +28,36 @@ export class Input {
   endFrame() { this.edges.clear(); }
 
   // The control deflections the flight model consumes, each -1..1.
+  // W climbs, S descends; A banks left, D banks right.
   get pitch() {
     let v = 0;
-    if (this.keys.has('ArrowUp')) v += 1;
-    if (this.keys.has('ArrowDown')) v -= 1;
-    if (v === 0 && this.mouse.seen) v = -this.mouse.y * 0.9;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) v += 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) v -= 1;
     return Math.max(-1, Math.min(1, v));
   }
 
   get roll() {
     let v = 0;
-    if (this.keys.has('ArrowRight')) v += 1;
-    if (this.keys.has('ArrowLeft')) v -= 1;
-    if (v === 0 && this.mouse.seen) v = this.mouse.x * 0.9;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) v += 1;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) v -= 1;
     return Math.max(-1, Math.min(1, v));
   }
 
   get rudder() {
+    // A/D double as rudder so she still steers while taxiing on the ground.
     let v = 0;
-    if (this.keys.has('KeyD')) v += 1;
-    if (this.keys.has('KeyA')) v -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) v += 1;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) v -= 1;
     return v;
   }
 
   get brake() { return this.keys.has('Space'); }
 
   update() {
+    // Latched throttle: hold Shift to spool up, Ctrl to spool down.
     let d = 0;
-    if (this.keys.has('KeyW')) d += 0.55;
-    if (this.keys.has('KeyS')) d -= 0.55;
+    if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) d += 0.55;
+    if (this.keys.has('ControlLeft') || this.keys.has('ControlRight')) d -= 0.55;
     this.throttleDelta = d;
   }
 }

@@ -127,8 +127,8 @@ export class FlightModel {
     this.heading += turnRate * dt * (airborne ? 1 : clamp(this.speed / 10, 0, 1));
 
     // --- forces along the flight path ---
-    const engineAccel = this.fuel > 0 ? this.throttle * 10.5 : 0;
-    const drag = 0.0038 * this.speed * this.speed + (this.flaps ? 1.6 : 0) + (this.brake && !airborne ? 6.5 : 0);
+    const engineAccel = this.fuel > 0 ? this.throttle * 13.5 : 0;
+    const drag = 0.0023 * this.speed * this.speed + (this.flaps ? 1.6 : 0) + (this.brake && !airborne ? 6.5 : 0);
     const gravityAlong = 9.81 * Math.sin(this.pitch);
     this.speed += (engineAccel - drag * Math.sign(this.speed) - gravityAlong) * dt;
     if (!airborne) this.speed = Math.max(0, this.speed);
