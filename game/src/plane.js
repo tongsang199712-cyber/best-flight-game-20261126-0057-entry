@@ -114,10 +114,11 @@ export class FlightModel {
     const rollTarget = (input.roll || 0) * 1.02;
     this.roll += clamp(rollTarget - this.roll, -2.4 * dt, 2.4 * dt);
     if (!airborne) this.roll *= Math.max(0, 1 - 6 * dt);
-    const pitchRate = (input.pitch || 0) * (airborne ? 0.55 : 0.30);
+    const pitchRate = (input.pitch || 0) * (airborne ? 0.70 : 0.30);
     // Nose-down authority goes to -0.65 rad so a dive actually steepens
-    // enough for gravity to pile the speed on (see the forces below).
-    this.pitch = clamp(this.pitch + pitchRate * dt, -0.65, 0.40);
+    // enough for gravity to pile the speed on (see the forces below);
+    // nose-up goes to 0.50 so a full pull climbs like it means it.
+    this.pitch = clamp(this.pitch + pitchRate * dt, -0.65, 0.50);
     if (!airborne && this.speed < this.stallSpeed) {
       // On the roll the nose stays down until she can fly.
       this.pitch = Math.min(this.pitch, 0.02);
@@ -136,7 +137,11 @@ export class FlightModel {
     // ~99 m/s (~192 KT) instead of the old ~89 m/s (~174 KT).
     const engineAccel = this.fuel > 0 ? this.throttle * 14.5 : 0;
     const drag = 0.0021 * this.speed * this.speed + (this.flaps ? 1.6 : 0) + (this.brake && !airborne ? 6.5 : 0);
-    const gravityAlong = 9.81 * Math.sin(this.pitch);
+    // Arcade climb: gravity along the path is halved while the nose is
+    // up, so full throttle plus a hard pull just keeps climbing (the GTA
+    // feel the player asked for) instead of bleeding speed until the wing
+    // gives up. Dives keep full gravity, so the terminal speed is unchanged.
+    const gravityAlong = 9.81 * Math.sin(this.pitch) * (this.pitch > 0 ? 0.5 : 1);
     this.speed += (engineAccel - drag * Math.sign(this.speed) - gravityAlong) * dt;
     if (!airborne) this.speed = Math.max(0, this.speed);
     this.speed = Math.max(0, this.speed);
@@ -145,9 +150,14 @@ export class FlightModel {
     const liftFactor = clamp(this.speed / this.stallSpeed, 0, 1.12);
     this.stalled = airborne && this.speed < this.stallSpeed;
     let climb = Math.sin(this.pitch) * this.speed * (0.30 + 0.70 * Math.min(liftFactor, 1));
-    if (this.stalled) climb -= (this.stallSpeed - this.speed) * 0.85;   // the mush
-    if (this.stalled) this.pitch -= 0.22 * dt;                          // nose drops
-    climb += (liftFactor - 1) * 2.2 * (this.flaps ? 1 : 0.4);           // flap float
+    // A stall is a gentle mush, never a plunge: the sink is capped at
+    // 3.5 m/s and the nose only eases back to level, never below it, so
+    // she floats down a little instead of dropping out of the sky.
+    if (this.stalled) climb -= Math.min((this.stallSpeed - this.speed) * 0.85, 3.5);
+    if (this.stalled && this.pitch > 0) this.pitch = Math.max(0, this.pitch - 0.12 * dt);
+    // Flap float is a bonus for spare speed only (never a penalty), and
+    // only while the nose is up, so level flight holds altitude exactly.
+    if (this.pitch > 0.02) climb += Math.max(0, liftFactor - 1) * 2.2 * (this.flaps ? 1 : 0.4);
     this.climbRate = climb;
 
     // --- integrate position ---
