@@ -186,8 +186,8 @@ export class Hud {
     const rows = [
       ['W / S', 'nose up · down'],
       ['A / D', 'bank left · right'],
-      ['SHIFT', 'throttle up'],
-      ['CTRL', 'throttle down'],
+      ['E / SHIFT', 'throttle up'],
+      ['Q', 'throttle down'],
       ['SPACE', 'brake'],
       ['F', 'flaps (takeoff / landing)'],
     ];
@@ -286,7 +286,7 @@ export class Hud {
 
     const controls = [
       ['W / S · ↑ / ↓', 'climb · descend'], ['A / D · ← / →', 'bank and turn'],
-      ['SHIFT', 'throttle up'], ['CTRL', 'throttle down'],
+      ['E / SHIFT', 'throttle up'], ['Q', 'throttle down'],
       ['F', 'flaps (takeoff / landing)'], ['SPACE', 'wheel brake'],
       ['R', 'restart flight'], ['M', 'sound on/off'],
     ];

@@ -1,7 +1,9 @@
 // input.js — keyboard-only flight controls. WASD flies the plane:
 // W/S pitch the nose up/down, A/D bank left/right (the arrow keys mirror
-// them as a backup). The throttle latches with Shift (up) and Ctrl
-// (down) and is read back from the flight model, so every system agrees.
+// them as a backup). The throttle latches with E (up, Shift works too)
+// and Q (down) and is read back from the flight model, so every system
+// agrees. Ctrl is deliberately never bound: in a browser Ctrl+W/S/D/A/F
+// would close the tab or pop dialogs mid-flight.
 // The mouse never steers; it only clicks menu buttons.
 
 export class Input {
@@ -54,10 +56,10 @@ export class Input {
   get brake() { return this.keys.has('Space'); }
 
   update() {
-    // Latched throttle: hold Shift to spool up, Ctrl to spool down.
+    // Latched throttle: hold E (or Shift) to spool up, Q to spool down.
     let d = 0;
-    if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) d += 0.55;
-    if (this.keys.has('ControlLeft') || this.keys.has('ControlRight')) d -= 0.55;
+    if (this.keys.has('KeyE') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) d += 0.55;
+    if (this.keys.has('KeyQ')) d -= 0.55;
     this.throttleDelta = d;
   }
 }
