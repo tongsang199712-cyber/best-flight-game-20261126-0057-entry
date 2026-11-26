@@ -33,7 +33,7 @@ export class Hud {
   // screenshot tells anyone exactly which build they are looking at.
   drawBuildTag() {
     const s = this.s, W = this.canvas.width;
-    this.text('BUILD 7', W - 16 * s, 20 * s, 13 * s, AMBER, 'right', 800);
+    this.text('BUILD 8', W - 16 * s, 20 * s, 13 * s, AMBER, 'right', 800);
   }
 
   panel(x, y, w, h, fill = GLASS) {

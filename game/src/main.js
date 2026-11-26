@@ -11,7 +11,7 @@ import {
   perspective, lookAt, multiply, translation, rotationX, rotationY, rotationZ,
   planeOrientation, basis, add, scale, norm, lerp,
 } from './math3d.js';
-import { buildWorld, groundHeight, onRunway, onDirtStrip, cloudDrift, RUNWAY } from './world.js';
+import { buildWorld, groundHeight, onRunway, onDirtStrip, cloudDrift, RUNWAY, DIRT_STRIP } from './world.js';
 import { buildPlane, FlightModel, GEAR_HEIGHT } from './plane.js';
 import { RING_COURSE, RingTracker, buildRingMesh } from './course.js';
 import { Input } from './input.js';
@@ -19,11 +19,6 @@ import { Hud } from './hud.js';
 import { SoundEngine } from './audio.js';
 
 const MISSIONS = [
-  {
-    id: 'free', title: 'Free Flight',
-    blurb: 'The whole valley, no clock. Land gently anywhere.',
-    objective: 'Land gently anywhere in the valley',
-  },
   {
     id: 'rings', title: 'Ring Run',
     blurb: 'Eight gates down the valley, then home to land.',
@@ -74,7 +69,7 @@ const params = new URLSearchParams(location.search);
 const shot = params.get('shot');
 
 let mode = 'menu';
-let missionIndex = 1; // Ring Run highlighted first: it is the signature flight
+let missionIndex = 0; // Ring Run highlighted first: it is the signature flight
 let mission = MISSIONS[missionIndex];
 let message = null;
 let missionTime = 0;
@@ -87,11 +82,36 @@ let endLinesAt = 0;   // when the debrief may appear (after a crash: once the ex
 let explosion = null; // { at, t0 } while the crash fireball plays
 let boomParts = [];
 let finalTime = null;
+let lastSink = null;  // worst touchdown sink since takeoff (m/s) — bounces can re-trigger
+                      // touchdown events, and the gentle re-contact must not wash out a slam
+let postPhase = 'enroute'; // Plateau Post guidance stage, for the one-off call-out
 
 function fmtTime(t) {
   const m = Math.floor(t / 60);
   const s = t - m * 60;
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+function fmtDist(m) {
+  return `${String(Math.round(m)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} M`;
+}
+
+// Live guidance for the Plateau Post, recomputed every frame: how far
+// the dirt strip is (to its near edge, metres), which compass point it
+// lies on (to its centre — the same point the minimap's dashed guide
+// ends at, so the panel and the map never disagree), and which stage
+// of the run the pilot is in.
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function stripGuide() {
+  const [x, , z] = flight.pos;
+  const cx = (DIRT_STRIP.xWest + DIRT_STRIP.xEast) / 2;
+  const dxEdge = Math.max(DIRT_STRIP.xWest - x, 0, x - DIRT_STRIP.xEast);
+  const dzEdge = Math.max(Math.abs(z - DIRT_STRIP.cz) - DIRT_STRIP.halfWidth, 0);
+  const dist = Math.hypot(dxEdge, dzEdge);
+  const bearing = (Math.atan2(cx - x, -(DIRT_STRIP.cz - z)) * 180 / Math.PI + 360) % 360;
+  const compass = COMPASS_POINTS[Math.round(bearing / 45) % 8];
+  const phase = onDirtStrip(x, z, 60) ? 'over' : dist <= 400 ? 'approach' : 'enroute';
+  return { dist, compass, phase };
 }
 
 function showMessage(text, sub, tone, seconds = 2.6) {
@@ -146,8 +166,14 @@ function startMission(index) {
   boomParts = [];
   message = null;
   camPos = null;
+  lastSink = null;
+  postPhase = 'enroute';
   mode = 'fly';
-  showMessage(mission.title.toUpperCase(), 'S pull back to climb · W push to descend · E/Q throttle · F flaps', 'info', 3.4);
+  if (mission.id === 'post') {
+    showMessage(mission.title.toUpperCase(), 'Deliver the mail — fly NW to the plateau dirt strip and land on it', 'info', 4.4);
+  } else {
+    showMessage(mission.title.toUpperCase(), 'S pull back to climb · W push to descend · E/Q throttle · F flaps', 'info', 3.4);
+  }
 }
 
 function endFlight(lines) {
@@ -173,6 +199,7 @@ function landingWord(sink) {
 function checkMissionEnd(events) {
   if (events.touchdown) {
     sound.thud(events.touchdown.sink);
+    lastSink = lastSink === null ? events.touchdown.sink : Math.max(lastSink, events.touchdown.sink);
     if (!flight.crashed && events.touchdown.sink > 0.6) {
       showMessage('TOUCHDOWN', landingWord(events.touchdown.sink), events.hardLanding ? 'warn' : 'good', 2.2);
     }
@@ -205,11 +232,22 @@ function checkMissionEnd(events) {
     }
   } else if (mission.id === 'post') {
     if (onDirtStrip(flight.pos[0], flight.pos[2], 4)) {
-      endFlight([
-        'Mail delivered. The plateau keeper waves from the strip.',
-        `Flight time ${fmtTime(missionTime)} · damage ${Math.round(flight.damage)}%`,
-        `Fuel remaining ${Math.round(flight.fuel)}% — enough to get home, if you fancy it.`,
-      ]);
+      // Delivered means on the strip AND down gently: 3.0 m/s sink is
+      // the flight model's own hard-landing line (past it the gear
+      // takes damage, past 4.4 she crashes outright, handled above).
+      if (lastSink === null || lastSink <= 3.0) {
+        endFlight([
+          `MAIL DELIVERED — flight time ${fmtTime(missionTime)}`,
+          `Touchdown at ${lastSink === null ? '—' : lastSink.toFixed(1)} m/s sink · damage ${Math.round(flight.damage)}% · fuel ${Math.round(flight.fuel)}%`,
+          'The plateau keeper waves from the strip.',
+        ]);
+      } else {
+        endFlight([
+          'On the strip — but that arrival smashed the mail crate.',
+          `Touchdown at ${lastSink.toFixed(1)} m/s sink; the mail only flies under 3.0.`,
+          `Damage ${Math.round(flight.damage)}% · fuel remaining ${Math.round(flight.fuel)}%`,
+        ]);
+      }
     } else {
       endFlight([
         'Down safely — but the mail goes to the plateau strip, north-west.',
@@ -259,7 +297,7 @@ function stepFlight(dt) {
 // --- screenshot scenes -------------------------------------------------
 function poseShot(name) {
   mode = 'fly';
-  mission = MISSIONS[1];
+  mission = MISSIONS.find((m) => m.id === 'rings');
   if (name === 'cover') {
     flight.reset([0, 0, 470]);
     flight.speed = 23; flight.throttle = 1; flight.pitch = 0.02;
@@ -447,7 +485,6 @@ function frame(now) {
   if (mode === 'menu') {
     if (input.pressed('Digit1')) missionIndex = 0;
     if (input.pressed('Digit2')) missionIndex = 1;
-    if (input.pressed('Digit3')) missionIndex = 2;
     if (input.pressed('ArrowUp')) missionIndex = (missionIndex + MISSIONS.length - 1) % MISSIONS.length;
     if (input.pressed('ArrowDown')) missionIndex = (missionIndex + 1) % MISSIONS.length;
     mission = MISSIONS[missionIndex];
@@ -513,16 +550,35 @@ function frame(now) {
   drawScene({ target }, camUp);
   camPos = settledCam;
 
+  // The mission panel's live lines. The Plateau Post flies on guidance
+  // that updates every frame: the objective line reads the strip's
+  // range and bearing, the progress line says what to do at this stage
+  // of the run, and crossing into approach range is called out once.
+  let objective = mission.objective;
+  let progress;
+  if (mission.id === 'rings') {
+    progress = tracker.done ? 'ALL RINGS FLOWN — LAND AT KESTREL FIELD' : `RINGS ${tracker.index} / ${RING_COURSE.length}`;
+  } else if (mission.id === 'post') {
+    const g = stripGuide();
+    objective = `DIRT STRIP ${fmtDist(g.dist)} · ${g.compass}`;
+    progress = g.phase === 'over' ? 'THE STRIP IS BELOW YOU'
+      : g.phase === 'approach' ? 'LINE UP E–W · SLOW DOWN · FLAPS (F)'
+      : (flight.onGround && !tookOff) ? 'TAKE OFF — THE MAIL WAITS NW'
+      : 'MAIL RUN — LAND ON THE DIRT STRIP';
+    if (mode === 'fly' && !flight.onGround && g.phase === 'approach' && postPhase !== 'approach') {
+      showMessage('STRIP IN SIGHT', 'Line up east–west · slow down · flaps (F)', 'info', 3.2);
+    }
+    postPhase = g.phase;
+  } else {
+    progress = `DAMAGE ${Math.round(flight.damage)}%`;
+  }
+
   hud.draw({
     mode, flight, muted: sound.muted,
     mission: {
       title: mission.title,
-      objective: mission.objective,
-      progress: mission.id === 'rings'
-        ? (tracker.done ? 'ALL RINGS FLOWN — LAND AT KESTREL FIELD' : `RINGS ${tracker.index} / ${RING_COURSE.length}`)
-        : mission.id === 'post'
-          ? (onDirtStrip(flight.pos[0], flight.pos[2], 60) ? 'THE STRIP IS BELOW YOU' : 'STRIP: NORTH-WEST PLATEAU')
-          : `DAMAGE ${Math.round(flight.damage)}%`,
+      objective,
+      progress,
       time: timerRunning || finalTime ? fmtTime(finalTime ?? missionTime) : '',
     },
     message: message && performance.now() < message.until ? message : null,
