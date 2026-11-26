@@ -181,10 +181,11 @@ export class Hud {
   drawControls() {
     const s = this.s;
     const x = 14 * s, y = 14 * s;
-    this.panel(x, y, 288 * s, 148 * s);
+    this.panel(x, y, 288 * s, 170 * s);
     this.text('CONTROLS', x + 12 * s, y + 19 * s, 11 * s, LINE, 'left', 700);
     const rows = [
-      ['W / S', 'nose up · down'],
+      ['S', 'pull back · climb'],
+      ['W', 'push forward · descend'],
       ['A / D', 'bank left · right'],
       ['E / SHIFT', 'throttle up'],
       ['Q', 'throttle down'],
@@ -285,7 +286,7 @@ export class Hud {
     });
 
     const controls = [
-      ['W / S · ↑ / ↓', 'climb · descend'], ['A / D · ← / →', 'bank and turn'],
+      ['S / W · ↓ / ↑', 'pull back climb · push descend'], ['A / D · ← / →', 'bank and turn'],
       ['E / SHIFT', 'throttle up'], ['Q', 'throttle down'],
       ['F', 'flaps (takeoff / landing)'], ['SPACE', 'wheel brake'],
       ['R', 'restart flight'], ['M', 'sound on/off'],

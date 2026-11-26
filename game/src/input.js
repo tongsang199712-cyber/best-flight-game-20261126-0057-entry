@@ -1,6 +1,7 @@
-// input.js — keyboard-only flight controls. WASD flies the plane:
-// W/S pitch the nose up/down, A/D bank left/right (the arrow keys mirror
-// them as a backup). The throttle latches with E (up, Shift works too)
+// input.js — keyboard-only flight controls. WASD works like a stick,
+// the way GTA flies: S pulls back (nose up, climb), W pushes forward
+// (nose down, descend), A/D bank left/right (the arrow keys mirror
+// them as a backup: ↓ pulls, ↑ pushes). The throttle latches with E (up, Shift works too)
 // and Q (down) and is read back from the flight model, so every system
 // agrees. Ctrl is deliberately never bound: in a browser Ctrl+W/S/D/A/F
 // would close the tab or pop dialogs mid-flight.
@@ -30,11 +31,12 @@ export class Input {
   endFrame() { this.edges.clear(); }
 
   // The control deflections the flight model consumes, each -1..1.
-  // W climbs, S descends; A banks left, D banks right.
+  // Stick logic: S / ↓ pull back and climb, W / ↑ push forward and
+  // descend; A banks left, D banks right.
   get pitch() {
     let v = 0;
-    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) v += 1;
-    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) v -= 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) v += 1;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) v -= 1;
     return Math.max(-1, Math.min(1, v));
   }
 

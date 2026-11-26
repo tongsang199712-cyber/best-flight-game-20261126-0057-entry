@@ -7,8 +7,13 @@ import { clamp, lerp } from './math3d.js';
 import { groundHeight, onDirtStrip, onRunway } from './world.js';
 
 export const GEAR_HEIGHT = 1.05;      // metres from origin to wheel bottoms
-export const STALL_SPEED = 19;        // m/s, clean
-export const STALL_SPEED_FLAPS = 15;  // m/s, flaps down
+// One flying-speed threshold for everything (the player asked for
+// takeoff speed = landing speed): below FLY_SPEED she cannot leave
+// the ground and cannot stay airborne, flaps or no flaps. The flaps
+// keep their drag and approach-settling job; they no longer buy a
+// slower touchdown.
+export const FLY_SPEED = 20;          // m/s, about 39 KT
+export const STALL_SPEED = FLY_SPEED; // same threshold, legacy name
 
 const CREAM = [0.92, 0.88, 0.78];
 const RED = [0.72, 0.16, 0.12];
@@ -98,7 +103,7 @@ export class FlightModel {
     return 0.22 + this.throttle * 0.78;
   }
 
-  get stallSpeed() { return this.flaps ? STALL_SPEED_FLAPS : STALL_SPEED; }
+  get stallSpeed() { return FLY_SPEED; }
 
   // input: { pitch: -1..1 (positive climbs), roll: -1..1 (positive banks
   // right), rudder: -1..1, throttleDelta, brake } — throttle itself is
@@ -114,7 +119,10 @@ export class FlightModel {
     const rollTarget = (input.roll || 0) * 1.02;
     this.roll += clamp(rollTarget - this.roll, -2.4 * dt, 2.4 * dt);
     if (!airborne) this.roll *= Math.max(0, 1 - 6 * dt);
-    const pitchRate = (input.pitch || 0) * (airborne ? 0.70 : 0.30);
+    // Rotation on the roll is brisk (0.9 rad/s) so she lifts off right
+    // at FLY_SPEED instead of barging well past it while the nose
+    // comes up; airborne pitch response stays at 0.70.
+    const pitchRate = (input.pitch || 0) * (airborne ? 0.70 : 0.9);
     // Nose-down authority goes to -0.65 rad so a dive actually steepens
     // enough for gravity to pile the speed on (see the forces below);
     // nose-up goes to 0.50 so a full pull climbs like it means it.
@@ -194,11 +202,16 @@ export class FlightModel {
       }
       this.pos[1] = groundY;
       this.onGround = true;
-      if (!this.crashed && this.speed > this.stallSpeed + 2 && this.pitch > 0.10 && climb > 0.5) {
+      if (!this.crashed && this.speed > this.stallSpeed && this.pitch > 0.06 && climb > 0.5) {
         this.onGround = false; // rotated: she lifts off again
         this.pos[1] = groundY + 0.1;
       }
     } else if (this.pos[1] > groundY + 0.35) {
+      this.onGround = false;
+    } else if (this.onGround && !this.crashed && this.speed > this.stallSpeed && this.pitch > 0.06 && climb > 0.5) {
+      // Rotated while the wing was already floating her a hair above
+      // the surface: call it airborne now, at FLY_SPEED, instead of
+      // waiting for the 0.35 m separation above.
       this.onGround = false;
     }
 

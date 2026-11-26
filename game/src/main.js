@@ -147,7 +147,7 @@ function startMission(index) {
   message = null;
   camPos = null;
   mode = 'fly';
-  showMessage(mission.title.toUpperCase(), 'WASD to fly · E throttle up · Q throttle down · F flaps', 'info', 3.4);
+  showMessage(mission.title.toUpperCase(), 'S pull back to climb · W push to descend · E/Q throttle · F flaps', 'info', 3.4);
 }
 
 function endFlight(lines) {
