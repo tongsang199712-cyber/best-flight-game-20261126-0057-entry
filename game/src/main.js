@@ -54,6 +54,16 @@ const ringMeshes = {
   waiting: buildRingMesh(gl, 'waiting'),
   done: buildRingMesh(gl, 'done'),
 };
+// Crash dressing: the fireball, sparks, debris and smoke are all these
+// few meshes, recoloured per job and moved/scaled per particle per frame.
+function boomMesh(build) { const b = new Builder(); build(b); return createMesh(gl, b); }
+const boomArt = {
+  core: boomMesh(b => b.blob(0, 0, 0, 1, [1.0, 0.92, 0.55], 1, 10)),
+  fire: boomMesh(b => b.blob(0, 0, 0, 1, [1.0, 0.48, 0.10], 1, 10)),
+  spark: boomMesh(b => b.box(0, 0, 0, 0.34, 0.34, 0.34, [1.0, 0.80, 0.30])),
+  debris: boomMesh(b => b.box(0, 0, 0, 0.55, 0.35, 0.75, [0.23, 0.20, 0.18])),
+  smoke: boomMesh(b => b.blob(0, 0, 0, 1, [0.62, 0.62, 0.65], 0.8, 9)),
+};
 const input = new Input(canvas);
 const hud = new Hud(document.getElementById('hud'));
 const sound = new SoundEngine();
@@ -73,6 +83,9 @@ let tookOff = false;
 let paused = false;
 let camPos = null;
 let endLines = [];
+let endLinesAt = 0;   // when the debrief may appear (after a crash: once the explosion has played)
+let explosion = null; // { at, t0 } while the crash fireball plays
+let boomParts = [];
 let finalTime = null;
 
 function fmtTime(t) {
@@ -85,6 +98,39 @@ function showMessage(text, sub, tone, seconds = 2.6) {
   message = { text, sub, tone, until: performance.now() + seconds * 1000 };
 }
 
+// Light the wreck: a fireball at the crash point, sparks and debris
+// thrown ballistically, and a slow smoke column. Pure theatre — the
+// flight model has already decided everything by the time this runs.
+function startExplosion(at) {
+  explosion = { at: [at[0], at[1], at[2]], t0: perfSeconds };
+  boomParts = [];
+  const puff = (kind, n, speed, up, life) => {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random();
+      boomParts.push({
+        kind,
+        vx: Math.cos(a) * r * speed, vz: Math.sin(a) * r * speed,
+        vy: up * (0.4 + Math.random() * 0.9),
+        life: life * (0.7 + Math.random() * 0.6),
+        size: 0.7 + Math.random() * 0.7,
+        spin: (Math.random() - 0.5) * 9,
+        seed: Math.random() * Math.PI * 2,
+      });
+    }
+  };
+  puff('spark', 46, 17, 13, 1.1);
+  puff('debris', 18, 10, 11, 1.7);
+  puff('smoke', 9, 3.5, 3.2, 2.3);
+  // Smoke starts spread around the wreck, not from one point.
+  for (const p of boomParts) {
+    if (p.kind !== 'smoke') continue;
+    p.ox = (Math.random() - 0.5) * 4;
+    p.oy = (Math.random() - 0.5) * 1.5;
+    p.oz = (Math.random() - 0.5) * 4;
+  }
+}
+
 function startMission(index) {
   missionIndex = index;
   mission = MISSIONS[index];
@@ -95,6 +141,9 @@ function startMission(index) {
   tookOff = false;
   finalTime = null;
   endLines = [];
+  endLinesAt = 0;
+  explosion = null;
+  boomParts = [];
   message = null;
   camPos = null;
   mode = 'fly';
@@ -103,6 +152,14 @@ function startMission(index) {
 
 function endFlight(lines) {
   endLines = lines;
+  if (flight.crashed) {
+    // The bang first; the paperwork (and the way out) waits for it.
+    startExplosion(flight.pos);
+    sound.boom();
+    endLinesAt = perfSeconds + 1.9;
+  } else {
+    endLinesAt = 0;
+  }
   mode = flight.crashed ? 'crashed' : 'complete';
 }
 
@@ -231,6 +288,19 @@ function poseShot(name) {
 }
 if (shot) poseShot(shot);
 
+// The camera must never sink into a hillside: when the Kestrel skims a
+// slope or crests a rise, the ground at the camera's own position can be
+// higher than the camera, and an unchecked camera ends up inside the
+// terrain — the view fills with the inside of the hill and the aeroplane
+// vanishes behind the slope. Keep every camera at least this far above
+// the ground directly beneath it.
+const CAM_GROUND_CLEARANCE = 2.2;
+function keepCameraAboveGround(pos) {
+  const floor = groundHeight(pos[0], pos[2]) + CAM_GROUND_CLEARANCE;
+  if (pos[1] < floor) pos[1] = floor;
+  return pos;
+}
+
 // --- rendering ----------------------------------------------------------
 function resize() {
   canvas.width = innerWidth;
@@ -241,6 +311,50 @@ addEventListener('resize', resize);
 resize();
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+// A model matrix for one particle: uniform scale, optional spin, place.
+function place(x, y, z, s, rx = 0, rz = 0) {
+  let m = [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, x, y, z, 1];
+  if (rx) m = multiply(m, rotationX(rx));
+  if (rz) m = multiply(m, rotationZ(rz));
+  return m;
+}
+
+function drawBoom(draw) {
+  if (!explosion) return;
+  const e = perfSeconds - explosion.t0;
+  if (e > 2.6) { explosion = null; boomParts = []; return; }
+  const [ax, ay, az] = explosion.at;
+  // The fireball: a white-hot flash for a blink, then an orange ball
+  // that shrinks away inside a second.
+  if (e < 0.8) {
+    const grow = Math.min(1, e / 0.18);
+    if (e < 0.16) {
+      draw(boomArt.core, place(ax, ay + 0.7, az, 3.4 * grow), 0.95);
+    } else {
+      const shrink = 1 - 0.75 * ((e - 0.16) / 0.64);
+      draw(boomArt.fire, place(ax, ay + 0.7, az, 3.1 * shrink), 0.8);
+    }
+  }
+  for (const p of boomParts) {
+    if (e > p.life) continue;
+    const k = e / p.life;
+    if (p.kind === 'smoke') {
+      // Smoke: slow, rising, swelling — and in no hurry to leave.
+      const x = ax + (p.ox || 0) + p.vx * e * 0.5, z = az + (p.oz || 0) + p.vz * e * 0.5;
+      draw(boomArt.smoke, place(x, ay + (p.oy || 0) + p.vy * e * 0.5 + 2.6 * e, z, p.size * (1.1 + 1.7 * k)), 0);
+    } else if (p.kind === 'debris') {
+      const x = ax + p.vx * e, z = az + p.vz * e;
+      const y = Math.max(ay + p.vy * e - 4.9 * e * e, groundHeight(x, z) + 0.25);
+      draw(boomArt.debris, place(x, y, z, p.size, p.seed + e * p.spin, p.seed * 2 + e * p.spin * 0.7), 0);
+    } else { // spark
+      const x = ax + p.vx * e, z = az + p.vz * e;
+      const y = ay + p.vy * e - 4.9 * e * e;
+      if (y < groundHeight(x, z)) continue;
+      draw(boomArt.spark, place(x, y, z, p.size * 0.3 * (1 - k) + 0.05, p.seed + e * p.spin, 0), 0.85);
+    }
+  }
+}
 
 function drawScene(view, camUp) {
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -287,6 +401,8 @@ function drawScene(view, camUp) {
     translation(...planeParts.elevatorPos), rotationX((shot ? -flight.pitch : -input.pitch) * 0.4))));
   draw(planeParts.rudder, multiply(planeModel, multiply(
     translation(...planeParts.rudderPos), rotationY((shot ? 0 : input.rudder) * 0.4))));
+
+  drawBoom(draw);
 }
 
 let perfSeconds = 0;
@@ -305,6 +421,7 @@ function frame(now) {
     const b = basis(orient);
     const backDist = shot === 'cover' ? 10.5 : 12;
     camPos = add(add(flight.pos, scale(b.forward, -backDist)), add([0, 3.1, 0], scale(b.right, shot === 'cover' ? 2.2 : 0)));
+    keepCameraAboveGround(camPos);
     const target = add(flight.pos, scale(b.forward, 30));
     drawScene({ target }, norm(add([0, 1, 0], scale(b.up, 0.4))));
     hud.draw({
@@ -345,8 +462,11 @@ function frame(now) {
     const sub = dt > 1 / 50 ? 2 : 1;
     for (let i = 0; i < sub; i++) stepFlight(dt / sub);
   } else if ((mode === 'complete' || mode === 'crashed')) {
-    if (input.pressed('KeyR')) startMission(missionIndex);
-    if (input.pressed('Enter')) mode = 'menu';
+    // After a crash the restart keys stay dead until the debrief is up.
+    if (perfSeconds >= endLinesAt) {
+      if (input.pressed('KeyR')) startMission(missionIndex);
+      if (input.pressed('Enter')) { mode = 'menu'; explosion = null; boomParts = []; }
+    }
     sound.update(0, { rpm: 0, speed: 0, stalled: false });
   }
   if (mode === 'fly' && input.pressed('KeyR')) startMission(missionIndex);
@@ -355,13 +475,38 @@ function frame(now) {
   const orient = planeOrientation(flight.heading, flight.pitch, flight.roll);
   const b = basis(orient);
   const desired = add(add(flight.pos, scale(b.forward, -11.5)), [0, 3.8, 0]);
+  // Aim the smoothed camera at a target that is already above the ground,
+  // so it rises into the lift instead of snapping up at the hard floor.
+  keepCameraAboveGround(desired);
   const blend = camPos ? 1 - Math.pow(0.002, dt) : 1;
   camPos = camPos
     ? [lerp(camPos[0], desired[0], blend), lerp(camPos[1], desired[1], blend), lerp(camPos[2], desired[2], blend)]
     : desired;
+  keepCameraAboveGround(camPos);
   const camUp = norm(add([0, 1, 0], scale(b.up, 0.45)));
-  const target = add(flight.pos, scale(b.forward, 26));
+  let target = add(flight.pos, scale(b.forward, 26));
+  // The explosion kicks the camera for a moment. The shake is applied to
+  // a throwaway copy so it never leaks into the smoothed chase position.
+  const settledCam = camPos;
+  if (explosion) {
+    const e = perfSeconds - explosion.t0;
+    if (e < 0.9) {
+      const amp = 0.55 * (1 - e / 0.9) * (1 - e / 0.9);
+      camPos = [
+        camPos[0] + Math.sin(perfSeconds * 91) * amp,
+        camPos[1] + Math.sin(perfSeconds * 113 + 2) * amp * 0.7,
+        camPos[2] + Math.sin(perfSeconds * 79 + 4) * amp,
+      ];
+      keepCameraAboveGround(camPos);
+      target = [
+        target[0] + Math.sin(perfSeconds * 97 + 1) * amp * 0.6,
+        target[1] + Math.sin(perfSeconds * 89 + 3) * amp * 0.6,
+        target[2],
+      ];
+    }
+  }
   drawScene({ target }, camUp);
+  camPos = settledCam;
 
   hud.draw({
     mode, flight, muted: sound.muted,
@@ -376,6 +521,7 @@ function frame(now) {
       time: timerRunning || finalTime ? fmtTime(finalTime ?? missionTime) : '',
     },
     message: message && performance.now() < message.until ? message : null,
+    debriefReady: perfSeconds >= endLinesAt,
     endLines,
   });
   input.endFrame();

@@ -119,6 +119,42 @@ export class SoundEngine {
     osc.stop(ctx.currentTime + 0.25);
   }
 
+  // The crash: a burst of noise through a lowpass that slams shut, over a
+  // sine that falls off a cliff — one synthesized bang, nothing loaded.
+  boom() {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * 0.7);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3200, t);
+    filter.frequency.exponentialRampToValueAtTime(120, t + 0.55);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.85, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    src.connect(filter);
+    filter.connect(ng);
+    ng.connect(this.master);
+    src.start();
+    const osc = ctx.createOscillator();
+    const og = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(28, t + 0.6);
+    og.gain.setValueAtTime(0.7, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+    osc.connect(og);
+    og.connect(this.master);
+    osc.start();
+    osc.stop(t + 0.7);
+  }
+
   toggleMute() {
     this.muted = !this.muted;
     return this.muted;

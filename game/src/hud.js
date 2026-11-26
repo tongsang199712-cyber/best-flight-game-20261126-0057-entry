@@ -261,7 +261,7 @@ export class Hud {
     this.drawControls();
 
     if (view.mode === 'complete') this.drawEnd(view, true);
-    if (view.mode === 'crashed') this.drawEnd(view, false);
+    if (view.mode === 'crashed' && view.debriefReady) this.drawEnd(view, false);
   }
 
   drawMenu(view) {
