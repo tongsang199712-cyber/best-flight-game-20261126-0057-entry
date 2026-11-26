@@ -115,7 +115,9 @@ export class FlightModel {
     this.roll += clamp(rollTarget - this.roll, -2.4 * dt, 2.4 * dt);
     if (!airborne) this.roll *= Math.max(0, 1 - 6 * dt);
     const pitchRate = (input.pitch || 0) * (airborne ? 0.55 : 0.30);
-    this.pitch = clamp(this.pitch + pitchRate * dt, -0.52, 0.40);
+    // Nose-down authority goes to -0.65 rad so a dive actually steepens
+    // enough for gravity to pile the speed on (see the forces below).
+    this.pitch = clamp(this.pitch + pitchRate * dt, -0.65, 0.40);
     if (!airborne && this.speed < this.stallSpeed) {
       // On the roll the nose stays down until she can fly.
       this.pitch = Math.min(this.pitch, 0.02);
@@ -127,8 +129,13 @@ export class FlightModel {
     this.heading += turnRate * dt * (airborne ? 1 : clamp(this.speed / 10, 0, 1));
 
     // --- forces along the flight path ---
-    const engineAccel = this.fuel > 0 ? this.throttle * 13.5 : 0;
-    const drag = 0.0023 * this.speed * this.speed + (this.flaps ? 1.6 : 0) + (this.brake && !airborne ? 6.5 : 0);
+    // Tuned for pace (player feedback: level flight and dives felt slow):
+    // thrust 14.5 with drag 0.0021·v² gives a level top speed of ~83 m/s
+    // (~162 KT), and in a full-throttle dive at the -0.65 rad pitch limit
+    // gravity adds ~5.9 m/s² along the path, for a dive terminal of
+    // ~99 m/s (~192 KT) instead of the old ~89 m/s (~174 KT).
+    const engineAccel = this.fuel > 0 ? this.throttle * 14.5 : 0;
+    const drag = 0.0021 * this.speed * this.speed + (this.flaps ? 1.6 : 0) + (this.brake && !airborne ? 6.5 : 0);
     const gravityAlong = 9.81 * Math.sin(this.pitch);
     this.speed += (engineAccel - drag * Math.sign(this.speed) - gravityAlong) * dt;
     if (!airborne) this.speed = Math.max(0, this.speed);
